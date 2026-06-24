@@ -19,6 +19,37 @@ import 'package:media_cache/media_cache.dart';
 import 'package:models/models.dart';
 import 'package:unified_logger/unified_logger.dart';
 
+/// Snap spring tuned for short-video feeds.
+///
+/// Critically damped (no overshoot) and ~2× stiffer than Flutter's
+/// framework default (`mass: 0.5, stiffness: 100, ratio: 1.1`). Settles
+/// in ~250 ms vs ~500 ms on the default, which is the dominant cause of
+/// the "lazy snap" feel after a swipe-up gesture on Android.
+const SpringDescription _kSnappyPageSpring = SpringDescription(
+  mass: 0.5,
+  stiffness: 200,
+  // Critical damping: 2 * sqrt(m * k) = 2 * sqrt(100) = 20.
+  damping: 20,
+);
+
+/// Default [ScrollPhysics] used by [InfiniteVideoFeed] when the caller
+/// does not provide one. Same shape as the framework default — a
+/// [PageScrollPhysics] wrapping the platform's scroll physics via
+/// [ScrollConfiguration] — only the snap spring is swapped for the
+/// snappier [_kSnappyPageSpring].
+const ScrollPhysics _snappyPageScrollPhysics = _SnappyPageScrollPhysics();
+
+class _SnappyPageScrollPhysics extends PageScrollPhysics {
+  const _SnappyPageScrollPhysics({super.parent});
+
+  @override
+  _SnappyPageScrollPhysics applyTo(ScrollPhysics? ancestor) =>
+      _SnappyPageScrollPhysics(parent: buildParent(ancestor));
+
+  @override
+  SpringDescription get spring => _kSnappyPageSpring;
+}
+
 /// Infinite scrolling video feed using native platform video players.
 ///
 /// Manages [DivineVideoPlayerController] instances for the current and
@@ -116,7 +147,10 @@ class InfiniteVideoFeed extends StatefulWidget {
 
   /// Optional physics for page swiping.
   ///
-  /// When `null`, a tuned default is used for short-video feeds.
+  /// When `null`, a tuned [PageScrollPhysics] is used — same overscroll
+  /// behavior as the platform default, but with a faster, critically-
+  /// damped snap spring tuned for short-video feeds (~250 ms settle vs
+  /// ~500 ms on the framework default).
   final ScrollPhysics? scrollPhysics;
 
   /// The cache manager used for disk prefetching and cached playback.
@@ -1330,7 +1364,7 @@ class InfiniteVideoFeedState extends State<InfiniteVideoFeed> {
     return PageView.builder(
       allowImplicitScrolling: true,
       controller: _pageController,
-      physics: widget.scrollPhysics,
+      physics: widget.scrollPhysics ?? _snappyPageScrollPhysics,
       scrollDirection: widget.scrollDirection,
       onPageChanged: _onPageChanged,
       itemCount: widget.videos.length,

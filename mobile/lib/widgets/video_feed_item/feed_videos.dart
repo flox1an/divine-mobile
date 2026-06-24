@@ -746,22 +746,43 @@ class _FeedItemActions extends StatelessWidget {
       );
     }
 
-    return ValueListenableBuilder<double>(
-      valueListenable: listenable,
-      builder: (context, page, _) {
-        final distance = (page - index).abs().clamp(0.0, 1.0);
-        return _FeedItemOverlayActions(
-          video: video,
-          contextTitle: contextTitle,
-          isOwnVideo: isOwnVideo,
-          autoAdvanceAvailable: autoAdvanceAvailable,
-          effectiveAutoEnabled: effectiveAutoEnabled,
-          onToggleAutoAdvance: onToggleAutoAdvance,
-          onSuppressAutoAdvance: onSuppressAutoAdvance,
-          subtitleLayer: subtitleLayer,
-          overlayOpacity: scrollDrivenOpacity(distance),
-        );
-      },
+    // Performance: the page-position listenable fires on every
+    // PageController tick during a drag (~60–120 Hz). Building the
+    // overlay subtree (gradients, Riverpod-backed profile fetch,
+    // follow button, linkified caption, action column) per tick is the
+    // dominant cost of the swipe gesture on mid-range Android. Pass
+    // the heavy subtree as the AnimatedBuilder's `child` so it is
+    // constructed once per page rebuild and reused across drag ticks.
+    //
+    // The RepaintBoundary sandwich is intentional: the outer boundary
+    // shields PageView's per-page raster cache from per-tick opacity
+    // invalidations, while the inner boundary caches the expensive
+    // overlay paint (text shadows, gradients, blurred icon shadows).
+    // During the drag, Opacity can then composite a cached overlay
+    // layer at a new alpha instead of re-rasterizing those children.
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: listenable,
+        child: RepaintBoundary(
+          child: _FeedItemOverlayActions(
+            video: video,
+            contextTitle: contextTitle,
+            isOwnVideo: isOwnVideo,
+            autoAdvanceAvailable: autoAdvanceAvailable,
+            effectiveAutoEnabled: effectiveAutoEnabled,
+            onToggleAutoAdvance: onToggleAutoAdvance,
+            onSuppressAutoAdvance: onSuppressAutoAdvance,
+            subtitleLayer: subtitleLayer,
+          ),
+        ),
+        builder: (context, child) {
+          final distance = (listenable.value - index).abs().clamp(0.0, 1.0);
+          return Opacity(
+            opacity: scrollDrivenOpacity(distance),
+            child: child,
+          );
+        },
+      ),
     );
   }
 }
@@ -776,7 +797,6 @@ class _FeedItemOverlayActions extends StatelessWidget {
     required this.onToggleAutoAdvance,
     required this.onSuppressAutoAdvance,
     this.subtitleLayer,
-    this.overlayOpacity,
   });
 
   final VideoEvent video;
@@ -787,31 +807,13 @@ class _FeedItemOverlayActions extends StatelessWidget {
   final VoidCallback? onToggleAutoAdvance;
   final VoidCallback? onSuppressAutoAdvance;
   final Widget? subtitleLayer;
-  final double? overlayOpacity;
 
   @override
   Widget build(BuildContext context) {
-    final opacity = overlayOpacity;
-    if (opacity == null) {
-      return VideoOverlayActions(
-        video: video,
-        isVisible: true,
-        isActive: true,
-        hasBottomNavigation: false,
-        contextTitle: contextTitle,
-        isFullscreen: true,
-        topOffset: isOwnVideo ? 64 : 8,
-        showAutoButton: autoAdvanceAvailable,
-        onInteracted: onSuppressAutoAdvance,
-        subtitleLayer: subtitleLayer,
-      );
-    }
-
     return VideoOverlayActions(
       video: video,
       isVisible: true,
       isActive: true,
-      overlayOpacity: opacity,
       hasBottomNavigation: false,
       contextTitle: contextTitle,
       isFullscreen: true,
