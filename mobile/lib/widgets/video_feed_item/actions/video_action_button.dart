@@ -192,9 +192,10 @@ class _ShadowedIcon extends StatelessWidget {
 }
 
 /// One of the two stacked drop shadows behind [_ShadowedIcon]'s glyph.
-/// Renders a [DivineIcon] tinted in [VineTheme.innerShadow], offset, and
-/// blurred via [ImageFiltered] so the shadow follows the glyph silhouette
-/// rather than the bounding rect.
+/// Android feed swipes are raster-thread bound; using [ImageFiltered.blur]
+/// here creates two saveLayers per action icon per visible page. On Android,
+/// keep the same offset/tint shape without the blur so the scrolling feed can
+/// composite cheaply.
 class _IconShadow extends StatelessWidget {
   const _IconShadow({
     required this.icon,
@@ -208,18 +209,22 @@ class _IconShadow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final shadow = ExcludeSemantics(
+      // Defensive ExcludeSemantics — DivineIcon is currently just a
+      // thin SvgPicture wrapper with no Semantics of its own, but if
+      // it ever gains one, the two shadow copies should stay out of
+      // the accessibility tree.
+      child: DivineIcon(icon: icon, color: VineTheme.innerShadow),
+    );
+
     return Transform.translate(
       offset: offset,
-      child: ImageFiltered(
-        imageFilter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-        // Defensive ExcludeSemantics — DivineIcon is currently just a
-        // thin SvgPicture wrapper with no Semantics of its own, but if
-        // it ever gains one, the two shadow copies should stay out of
-        // the accessibility tree.
-        child: ExcludeSemantics(
-          child: DivineIcon(icon: icon, color: VineTheme.innerShadow),
-        ),
-      ),
+      child: Theme.of(context).platform == TargetPlatform.android
+          ? shadow
+          : ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+              child: shadow,
+            ),
     );
   }
 }
